@@ -9,16 +9,22 @@
 #include <unistd.h>
 
 #define HELL_COLORS_IMPLEMENTATION
-#include "hell_colors.h"
+#include "libs/hell_colors.h"
 
 #define HELL_PARSER_IMPLEMENTATION
-#include "hell_parser.h"
+#include "libs/hell_parser.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "libs/stb_image.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "libs/stb_image_write.h"
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "libs/stb_truetype.h"
+
+#define LA_IMPLEMENTATION
+#include "libs/la.h"
 
 /***
  * MACROS
@@ -628,6 +634,87 @@ int color_distance(RGB c1, RGB c2) {
     return dr * dr + dg * dg + db * db;
 }
 
+void draw_circle(IMG *img, int cx, int cy, int radius, RGB color)
+{
+    int x = radius;
+    int y = 0;
+    int err = 0;
+
+    while (x >= y)
+    {
+        int points[8][2] = {
+            { cx + x, cy + y },
+            { cx + y, cy + x },
+            { cx - y, cy + x },
+            { cx - x, cy + y },
+            { cx - x, cy - y },
+            { cx - y, cy - x },
+            { cx + y, cy - x },
+            { cx + x, cy - y }
+        };
+
+        for (int i = 0; i < 8; i++)
+        {
+            int px = points[i][0];
+            int py = points[i][1];
+            if (px >= 0 && px < (int)img->width && py >= 0 && py < (int)img->height)
+            {
+                size_t index = (py * img->width + px) * img->channels;
+                img->pixels[index + 0] = color.R;
+                img->pixels[index + 1] = color.G;
+                img->pixels[index + 2] = color.B;
+                if (img->channels == 4)
+                    img->pixels[index + 3] = 255;
+            }
+        }
+
+        y += 1;
+        err += 1 + 2 * y;
+        if (2 * (err - x) + 1 > 0)
+        {
+            x -= 1;
+            err += 1 - 2 * x;
+        }
+    }
+}
+
+void draw_line(IMG *img, int x1, int y1, int x2, int y2, RGB color)
+{
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = x1 < x2 ? 1 : -1;
+    int sy = y1 < y2 ? 1 : -1;
+    int err = dx - dy;
+
+    while (1)
+    {
+        if (x1 >= 0 && x1 < (int)img->width && y1 >= 0 && y1 < (int)img->height)
+        {
+            size_t index = (y1 * img->width + x1) * img->channels;
+            img->pixels[index + 0] = color.R;
+            img->pixels[index + 1] = color.G;
+            img->pixels[index + 2] = color.B;
+            if (img->channels == 4)
+                img->pixels[index + 3] = 255;
+        }
+
+        if (x1 == x2 && y1 == y2)
+            break;
+
+        int e2 = 2 * err;
+        if (e2 > -dy)
+        {
+            err -= dy;
+            x1 += sx;
+        }
+        if (e2 < dx)
+        {
+            err += dx;
+            y1 += sy;
+        }
+    }
+}
+
 void draw_rect(IMG *img, unsigned r_width, unsigned r_height, int posx, int posy, RGB color)
 {
     if (img == NULL)
@@ -852,6 +939,82 @@ void fill(IMG *img, RGB color)
     }
 }
 
+V2i get_text_size(stbtt_fontinfo *font, const char *text, int font_size)
+{
+    float scale = stbtt_ScaleForPixelHeight(font, font_size);
+
+    int ascent, descent, lineGap;
+    stbtt_GetFontVMetrics(font, &ascent, &descent, &lineGap);
+
+    int width = 0;
+    int max_height = (int)((ascent - descent + lineGap) * scale);
+
+    for (const char *p = text; *p; ++p)
+    {
+        int c = *p;
+        int adv, lsb;
+        stbtt_GetCodepointHMetrics(font, c, &adv, &lsb);
+        width += (int)(adv * scale);
+    }
+
+    V2i size = { width, max_height };
+    return size;
+}
+
+void draw_text(IMG *img, stbtt_fontinfo *font, const char *text, int x, int y, int font_size, RGB color)
+{
+    float scale = stbtt_ScaleForPixelHeight(font, font_size);
+    int ascent, descent, lineGap;
+    stbtt_GetFontVMetrics(font, &ascent, &descent, &lineGap);
+    int baseline = (int)(ascent * scale);
+
+    int pos_x = x;
+    int pos_y = y + baseline;
+
+    for (const char *p = text; *p; ++p)
+    {
+        int c = *p;
+
+        int width, height, xoff, yoff;
+        unsigned char *bitmap = stbtt_GetCodepointBitmap(font, 0, scale, c, &width, &height, &xoff, &yoff);
+
+        for (int row = 0; row < height; row++)
+        {
+            int dst_y = pos_y + yoff + row;
+            if (dst_y < 0 || dst_y >= (int)img->height)
+                continue;
+
+            for (int col = 0; col < width; col++)
+            {
+                int dst_x = pos_x + xoff + col;
+                if (dst_x < 0 || dst_x >= (int)img->width)
+                    continue;
+
+                uint8_t alpha = bitmap[row * width + col];
+                if (alpha == 0) continue;
+
+                size_t index = (dst_y * img->width + dst_x) * img->channels;
+
+                for (int ch = 0; ch < 3; ch++)
+                {
+                    uint8_t src = (ch == 0) ? color.R : (ch == 1) ? color.G : color.B;
+                    uint8_t dst = img->pixels[index + ch];
+                    img->pixels[index + ch] = (src * alpha + dst * (255 - alpha)) / 255;
+                }
+
+                if (img->channels == 4)
+                    img->pixels[index + 3] = 255;
+            }
+        }
+
+        int adv, lsb;
+        stbtt_GetCodepointHMetrics(font, c, &adv, &lsb);
+        pos_x += (int)(adv * scale);
+
+        stbtt_FreeBitmap(bitmap, NULL);
+    }
+}
+
 void style1(IMG *img, PALETTE p)
 {
     print_palette(p);
@@ -904,40 +1067,32 @@ void style1(IMG *img, PALETTE p)
 void style2(IMG *img, PALETTE p)
 {
     print_palette(p);
-
     img_print_stats(img);
 
-    unsigned factor = 0;
-    unsigned x1 = img->width * 0.3;
-    unsigned x2 = img->width * 0.7;
-    unsigned y1 = img->height * 0.1;
-    unsigned y2 = img->height * 0.9;
+    float factor;
+    V2i p1;
+    V2i p2;
 
     if (img->width > img->height)
     {
         factor = img->height * 0.3;
 
-        x1 = img->width * 0.3;
-        x2 = img->width * 0.3 + factor;
-        y1 = img->height * 0.3;
-        y2 = img->height * 0.3 + factor;
+        p1.x = img->width * 0.3;
+        p2.x = img->width * 0.3 + factor;
+        p1.y = img->height * 0.3;
+        p2.y = img->height * 0.3 + factor;
     }
     else
     {
         factor = img->width * 0.3;
 
-        x1 = img->width * 0.3;
-        x2 = img->width * 0.3 + factor;
-        y1 = img->height * 0.3;
-        y2 = img->height * 0.3 + factor;
+        p1.x = img->width * 0.3;
+        p2.x = img->width * 0.3 + factor;
+        p1.y = img->height * 0.3;
+        p2.y = img->height * 0.3 + factor;
     }
 
-    log_c("x1:%d", x1);
-    log_c("y1:%d", y1);
-    log_c("x2:%d", x2);
-    log_c("y2:%d", y2);
-
-    crop(img, x1, y1, x2, y2);
+    crop(img, p1.x, p1.y, p2.x, p2.y);
     img_print_stats(img);
 
     unsigned ss = factor*2;
@@ -948,14 +1103,11 @@ void style2(IMG *img, PALETTE p)
 
     draw_rect_w_border(blank, img->width, img->height, ssx, ssy, p.colors[14],
             5, p.colors[15]);
-    paste(blank, img, ssx+20, ssy+20);
+    paste(blank, img, ssx+40, ssy+40);
 
-    draw_border(img, 10, p.colors[14]);
-    draw_border(img, 5,  p.colors[15]);
-
-    unsigned spacing = blank->width * blank->height * 0.000008;
-    unsigned border = blank->width * blank->height * 0.000005;
-    unsigned size = blank->width * blank->height * 0.00008;
+    unsigned spacing = blank->width * blank->height * 0.0000025;
+    unsigned border = blank->width * blank->height * 0.000003;
+    unsigned size = blank->width * blank->height * 0.000035;
 
     unsigned total_w = spacing * 8  + size * 8 ;
     unsigned total_h = spacing * 2 + size * 2;
@@ -964,10 +1116,59 @@ void style2(IMG *img, PALETTE p)
     unsigned ppy = blank->height*0.9 - total_h * 0.5 - size * 0.5;
 
     draw_palette(blank, p, ppx, ppy, spacing, border, size);
-    draw_border(blank, 10, p.colors[5]);
-    draw_border(blank, 5, p.colors[15]);
+    draw_border(blank, 25, p.colors[5]);
+    draw_border(blank, 10, p.colors[15]);
+
+    char *ttf_buff = load_file("./fonts/Minecraft.ttf");
+    stbtt_fontinfo font;
+    stbtt_InitFont(&font, (unsigned char*) ttf_buff, stbtt_GetFontOffsetForIndex((unsigned char*)ttf_buff, 0));
+
+    V2i ttf_size = get_text_size(&font, "Sesbian Lex", 200);
+
+    unsigned ttx = (blank->width/2) - (ttf_size.x/2);
+    unsigned tty = blank->height*0.7 - ttf_size.y * 0.5 - ttf_size.y * 0.5;
+    draw_text(blank, &font, "Sesbian Lex", ttx, tty, 200, BLACK);
 
     stbi_write_png(OUTPUT_ARG, blank->width, blank->height, blank->channels, blank->pixels, blank->width * blank->channels);
+}
+
+void style3(PALETTE p)
+{
+    const unsigned w = 1024;
+    const unsigned h = 1024;
+
+    const unsigned cb = w * 0.078125;
+
+    const unsigned cw = w - cb;
+    const unsigned ch = w * 0.68359375;
+
+    print_palette(p);
+    IMG *i = create_img(w, h, 3, p.colors[15]);
+
+    int a = 0;
+    const unsigned pal_w = cw / 6;
+    for (int j = 15; a < 6; j--)
+    {
+        draw_rect(i, pal_w, ch, (cb/2) + pal_w * a, cb/2, p.colors[j-1]);
+        if (j<13)
+            j--;
+        a++;
+    }
+
+    int border_w = w*0.009765625;
+    draw_border(i, border_w, p.colors[1]);
+
+    // font
+    char *ttf_buff = load_file("./fonts/Minecraft.ttf");
+    stbtt_fontinfo font;
+    int font_size = 80;
+    stbtt_InitFont(&font, (unsigned char*) ttf_buff, stbtt_GetFontOffsetForIndex((unsigned char*)ttf_buff, 0));
+    V2i ttf_size = get_text_size(&font, "Sesbian Lex", font_size);
+    unsigned ttx = i->width - (i->width/6) - (ttf_size.x/2);
+    unsigned tty = i->height*0.88 - ttf_size.y * 0.5 - ttf_size.y * 0.5;
+    draw_text(i, &font, "HELLWAL\'", ttx, tty, font_size, p.colors[1]);
+
+    stbi_write_png(OUTPUT_ARG, i->width, i->height, i->channels, i->pixels, i->width * i->channels);
 }
 
 int main(int argc, char **argv)
@@ -976,7 +1177,6 @@ int main(int argc, char **argv)
     if (set_args(argc,argv) != 0)
         err("arguments error");
 
-
     PALETTE p = process_theme(THEME_ARG);
     IMG *img = img_load(IMAGE_ARG);
 
@@ -984,8 +1184,10 @@ int main(int argc, char **argv)
     {
         style1(img, p);
     }
-    else
+    else if (STYLE_ARG != NULL && !strcmp(STYLE_ARG, "2"))
         style2(img, p);
+    else if (STYLE_ARG != NULL && !strcmp(STYLE_ARG, "3"))
+        style3(p);
 
     stbi_image_free(img->pixels);
     free(img);
