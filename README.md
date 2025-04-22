@@ -1,7 +1,7 @@
 # Hellcard - Fast, Pretty(not yet), Flashcard Colorscheme\X/Walpaper Generator
 
 <p align="center">
-    <img align="center" src="https://raw.githubusercontent.com/danihek/trashcan/main/first_hellcard.gif" alt="Preview" width="500">
+    <img align="center" src="https://github.com/user-attachments/assets/3e30fcff-901e-4df6-b314-67404563a9fe" alt="Preview" width="500">
 </p>
 
 ### Star History
