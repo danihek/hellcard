@@ -99,6 +99,9 @@ char *THEME_ARG = NULL;
 /* style type */
 char *STYLE_ARG = NULL;
 
+/* width */
+int WIDTH_ARG = 1024;
+
 /*** 
  * FUNCTIONS DECLARATIONS
  ***/
@@ -141,6 +144,7 @@ void hellcard_usage(const char *name)
     printf("  -t, --theme  <file>                Set theme hellwal file\n");
     printf("  -o, --output <image>               Set output filename\n");
     printf("  -s, --style  <int>                 Set image style (1, 2)\n");
+    printf("  -w, --width  <int>                 Set image width (and height)\n");
     printf("  -h, --help                         Display this help and exit\n\n");
 }
 
@@ -256,6 +260,20 @@ int set_args(int argc, char *argv[])
                 argc = -1;
             }
         }
+        else if ((strcmp(argv[i], "--width") == 0 || strcmp(argv[i], "-w") == 0))
+        {
+            if (i + 1 < argc)
+            {
+                int w = atoi(argv[++i]);
+                if (w > 0)
+                    WIDTH_ARG = w;
+                else
+                    err("Width value have to be >0 and integer");
+            }
+            else {
+                argc = -1;
+            }
+        }
         else {
             eu("Unknown option: %s", argv[i]);
         }
@@ -297,6 +315,10 @@ int set_args(int argc, char *argv[])
         strcat(THEME_ARG , "/");
         strcat(THEME_ARG , cache_hellwal);
     }
+
+
+    if (STYLE_ARG == NULL)
+        STYLE_ARG = "3";
 
     return 0;
 }
@@ -742,10 +764,11 @@ void draw_rect(IMG *img, unsigned r_width, unsigned r_height, int posx, int posy
     }
 }
 
-void draw_rect_w_3(
+void draw_rect_w_border_3(
         IMG *img, unsigned r_width, unsigned r_height,
         int posx, int posy, RGB color,
-        unsigned border_width, RGB border_color
+        unsigned border_width, RGB border_color,
+        int corner
         )
 {
 
@@ -754,8 +777,26 @@ void draw_rect_w_3(
 
     //r_width -= border_width;
     //r_height -= border_width;
-    posx += border_width;
-    posy += border_width;
+    if (corner == 0)
+    {
+        posx += border_width;
+        posy += border_width;
+    }
+    else if (corner == 1)
+    {
+        posx -= border_width;
+        posy += border_width;
+    }
+    else if (corner == 2)
+    {
+        posx -= border_width;
+        posy -= border_width;
+    }
+    else if (corner == 3)
+    {
+        posx += border_width;
+        posy -= border_width;
+    }
 
     /* actual rectangle */
     draw_rect(img, r_width, r_height, posx, posy, color);
@@ -819,13 +860,14 @@ void draw_palette(IMG *img, PALETTE p, unsigned posx, unsigned posy, unsigned sp
     }
 }
 
-void crop(IMG *img, unsigned x1, unsigned y1, unsigned x2, unsigned y2)
+int crop(IMG *img, unsigned x1, unsigned y1, unsigned x2, unsigned y2)
 {
+
     if (img == NULL || img->pixels == NULL)
         err("Image is NULL");
 
     if (x2 <= x1 || y2 <= y1 || x2 > img->width || y2 > img->height)
-        err("Invalid crop dimensions");
+        return 1;
 
     unsigned iw = x2 - x1;
     unsigned ih = y2 - y1;
@@ -852,6 +894,8 @@ void crop(IMG *img, unsigned x1, unsigned y1, unsigned x2, unsigned y2)
     img->pixels = cropped;
     img->width = iw;
     img->height = ih;
+
+    return 0;
 }
 
 void paste(IMG *dst, IMG *src, unsigned dest_x, unsigned dest_y)
@@ -881,6 +925,12 @@ void paste(IMG *dst, IMG *src, unsigned dest_x, unsigned dest_y)
             }
         }
     }
+}
+
+void paste_w_border(IMG *dst, IMG *src, unsigned dest_x, unsigned dest_y, unsigned border_w, RGB col)
+{
+    draw_rect(dst, src->width+border_w*2, src->height+border_w*2, dest_x-border_w, dest_y-border_w, col);
+    paste(dst, src, dest_x, dest_y);
 }
 
 IMG *create_img(unsigned width, unsigned height, unsigned channels, RGB color)
@@ -1015,136 +1065,232 @@ void draw_text(IMG *img, stbtt_fontinfo *font, const char *text, int x, int y, i
     }
 }
 
-void style1(IMG *img, PALETTE p)
+int image_write(IMG *i, const char *filename)
 {
-    print_palette(p);
-
-    img_print_stats(img);
-
-    unsigned x1 = img->width * 0.3;
-    unsigned x2 = img->width * 0.7;
-    unsigned y1 = img->height * 0.1;
-    unsigned y2 = img->height * 0.9;
-
-    if (img->width > img->height)
-    {
-        x1 = img->width * 0.3;
-        x2 = img->width * 0.7;
-        y1 = img->height * 0.1;
-        y2 = img->height * 0.9;
-    }
-    else
-    {
-        x1 = img->width * 0.1;
-        x2 = img->width * 0.9;
-        y1 = img->height * 0.3;
-        y2 = img->height * 0.7;
-    }
-
-    log_c("x1:%d", x1);
-    log_c("y1:%d", y1);
-    log_c("x2:%d", x2);
-    log_c("y2:%d", y2);
-
-    crop(img, x1, y1, x2, y2);
-    img_print_stats(img);
-
-    draw_border(img, 10, p.colors[14]);
-    draw_border(img, 5,  p.colors[15]);
-
-    unsigned px = img->width * 0.03;
-    unsigned py = img->height * 0.03;
-
-    unsigned spacing = img->width * img->height * 0.000007;
-    unsigned border = img->width * img->height * 0.000003;
-    unsigned size = img->width * img->height * 0.00006;
-
-    draw_palette(img, p, px, py, spacing, border, size );
-
-    stbi_write_png(OUTPUT_ARG, img->width, img->height, img->channels, img->pixels, img->width * img->channels);
+    return stbi_write_png(filename, i->width, i->height, i->channels, i->pixels, i->width * i->channels);
 }
 
-void style2(IMG *img, PALETTE p)
+IMG *img_scale_down(IMG *src, unsigned target_width, unsigned target_height)
+{
+    if (!src || !src->pixels || target_width == 0 || target_height == 0)
+        err("Invalid source image or target dimensions");
+
+    unsigned channels = src->channels;
+    IMG *resized = create_img(target_width, target_height, channels, (RGB){0, 0, 0});
+
+    float scale_x = (float)src->width / target_width;
+    float scale_y = (float)src->height / target_height;
+
+    for (unsigned y = 0; y < target_height; y++)
+    {
+        for (unsigned x = 0; x < target_width; x++)
+        {
+            unsigned start_x = (unsigned)(x * scale_x);
+            unsigned start_y = (unsigned)(y * scale_y);
+            unsigned end_x = (unsigned)((x + 1) * scale_x);
+            unsigned end_y = (unsigned)((y + 1) * scale_y);
+
+            if (end_x > src->width) end_x = src->width;
+            if (end_y > src->height) end_y = src->height;
+
+            unsigned sum[4] = {0, 0, 0, 0};
+            unsigned count = 0;
+
+            for (unsigned sy = start_y; sy < end_y; sy++)
+            {
+                for (unsigned sx = start_x; sx < end_x; sx++)
+                {
+                    size_t idx = (sy * src->width + sx) * channels;
+                    for (unsigned c = 0; c < channels; c++)
+                        sum[c] += src->pixels[idx + c];
+                    count++;
+                }
+            }
+
+            if (count == 0) count = 1;
+
+            size_t dest_idx = (y * target_width + x) * channels;
+            for (unsigned c = 0; c < channels; c++)
+                resized->pixels[dest_idx + c] = sum[c] / count;
+        }
+    }
+
+    return resized;
+}
+
+IMG *img_scale_up(IMG *src, unsigned new_width, unsigned new_height)
+{
+    if (!src || !src->pixels)
+        err("Invalid source image for scaling");
+
+    IMG *resized = create_img(new_width, new_height, src->channels, (RGB){0, 0, 0});
+
+    float x_ratio = (float)src->width / new_width;
+    float y_ratio = (float)src->height / new_height;
+
+    for (unsigned y = 0; y < new_height; y++) {
+        for (unsigned x = 0; x < new_width; x++) {
+            unsigned src_x = x * x_ratio;
+            unsigned src_y = y * y_ratio;
+
+            for (unsigned c = 0; c < src->channels; c++) {
+                resized->pixels[(y * new_width + x) * src->channels + c] =
+                    src->pixels[(src_y * src->width + src_x) * src->channels + c];
+            }
+        }
+    }
+
+    return resized;
+}
+
+IMG *style1(IMG *img, PALETTE p, unsigned w)
 {
     print_palette(p);
     img_print_stats(img);
 
-    float factor;
-    V2i p1;
-    V2i p2;
+    unsigned h = w;
+    unsigned border_w = w * 0.01;
 
-    if (img->width > img->height)
-    {
-        factor = img->height * 0.3;
+    V2i p1 = {img->width/2, img->height/2};
+    unsigned iw = w;
+    unsigned ih = h;
 
-        p1.x = img->width * 0.3;
-        p2.x = img->width * 0.3 + factor;
-        p1.y = img->height * 0.3;
-        p2.y = img->height * 0.3 + factor;
+    if (img->width>img->height) {
+        iw = img->height;
+        ih = img->height;
+    } else {
+        iw = img->width;
+        ih = img->width;
     }
+
+    // crop
+    crop(img, p1.x-iw/2, p1.y-ih/2, p1.x-iw/2 + iw, p1.y-ih/2 + ih);
+
+    // scale
+    if (iw < w)
+        img = img_scale_up(img, w, h);
     else
-    {
-        factor = img->width * 0.3;
+        img = img_scale_down(img, w, h);
 
-        p1.x = img->width * 0.3;
-        p2.x = img->width * 0.3 + factor;
-        p1.y = img->height * 0.3;
-        p2.y = img->height * 0.3 + factor;
-    }
+    // color palette
+    unsigned size = w / 10;
+    unsigned spacing = w / 100;
+    unsigned border = w / 160;
+    unsigned row_len = PALETTE_SIZE / 2;  // You display 2 rows
+    unsigned total_width  = row_len * size + (row_len - 1) * spacing;
+    unsigned total_height = 2 * size + spacing;
+    unsigned posx = (img->width  - total_width) / 2;
+    unsigned posy = (img->height - total_height) * 0.9;
+    draw_palette(img, p, posx, posy, spacing, border, size);
 
-    crop(img, p1.x, p1.y, p2.x, p2.y);
+    // border
+    draw_border(img, border_w, p.colors[7]);
+
     img_print_stats(img);
 
-    unsigned ss = factor*2;
-    unsigned ssx = (ss/2)-(img->width/2);
-    unsigned ssy = (ss/3)-(img->width/2);
+    return img;
+}
 
-    IMG *blank = create_img(ss, ss, img->channels, p.colors[15]); 
+IMG *style2(IMG *img, PALETTE p, unsigned w)
+{
+    print_palette(p);
+    img_print_stats(img);
 
-    draw_rect_w_border(blank, img->width, img->height, ssx, ssy, p.colors[14],
-            5, p.colors[15]);
-    paste(blank, img, ssx+40, ssy+40);
+    unsigned h = w;
+    unsigned border_w = w * 0.011574074074074073;
 
-    unsigned spacing = blank->width * blank->height * 0.0000025;
-    unsigned border = blank->width * blank->height * 0.000003;
-    unsigned size = blank->width * blank->height * 0.000035;
+    V2i p1 = {img->width/2, img->height/2};
 
-    unsigned total_w = spacing * 8  + size * 8 ;
-    unsigned total_h = spacing * 2 + size * 2;
+    unsigned target_iw = w * 0.5587037037037037;
+    unsigned target_ih = w * 0.19675925925925927;
 
-    unsigned ppx = (blank->width/2) - (total_w/2);
-    unsigned ppy = blank->height*0.9 - total_h * 0.5 - size * 0.5;
 
-    draw_palette(blank, p, ppx, ppy, spacing, border, size);
-    draw_border(blank, 25, p.colors[5]);
-    draw_border(blank, 10, p.colors[15]);
+    unsigned iw = img->width * 0.734375;
+    unsigned ih = img->height * 0.459722;
+    unsigned ix = w * 0.05787037037037037;
+    unsigned iy = w * 0.7523148148148148;
 
+    while (crop(img, p1.x-iw/2, p1.y-ih/2, p1.x-iw/2+iw, p1.y-ih/2+ih) == 1) {
+        warn("Crop dimensions suck.");
+        iw *= 0.98;
+        ih *= 0.98;
+    }
+
+    // scale
+    if (iw < w)
+        img = img_scale_up(img, target_iw, target_ih);
+    else
+        img = img_scale_down(img, target_iw, target_ih);
+
+    IMG *img_out = create_img(w, h, img->channels, p.colors[15]); 
+    draw_rect_w_border(img_out, w-border_w*2, h-border_w*2, border_w, border_w, p.colors[15], border_w, p.colors[5]);
+
+    unsigned ib = w * 0.00792393026941363; // image borders
+    draw_rect(img_out, target_iw, target_ih, ix-ib, iy-ib, p.colors[14]);
+    draw_rect(img_out, target_iw, target_ih, ix+ib, iy+ib, p.colors[2]);
+    paste(img_out, img, ix, iy);
+
+    const unsigned cb = w * 0.078125;    // borders
+    const unsigned cw = w - cb;          // entire color block width
+    const unsigned ch = w * 0.68359375;  // color block height
+    const unsigned pal_w = cw / 6;       // with of one color block
+
+    for (int j = 0; j < 6; j++)
+    {
+        int color = j;
+        log_c("color[%d]", color);
+        draw_rect(img_out, pal_w, ch, (cb/2) + pal_w * j, cb/2, p.colors[color]);
+    }
+
+    /*int a = 0;*/
+    /*for (int j = 15; a < 6; j--)*/
+    /*{*/
+        /*int color = j-1;*/
+        /*log_c("color[%d]", color);*/
+        /*draw_rect(img_out, pal_w, ch, (cb/2) + pal_w * a, cb/2, p.colors[color]);*/
+
+        /*if (j<12)*/
+            /*j--;*/
+        /*a++;*/
+    /*}*/
+
+    // color palette
+    unsigned pal_spacing = w * 0.002314;
+    unsigned pal_border = w * 0.003472;
+    unsigned pal_size = w * 0.03672;
+    draw_palette(img_out, p, w * 0.65, h * 0.865, pal_spacing, pal_border, pal_size);
+
+    char *msg = "hell@wal";
+    // font
     char *ttf_buff = load_file("./fonts/Minecraft.ttf");
     stbtt_fontinfo font;
+    int font_size = w * 0.078125;
     stbtt_InitFont(&font, (unsigned char*) ttf_buff, stbtt_GetFontOffsetForIndex((unsigned char*)ttf_buff, 0));
+    V2i ttf_size = get_text_size(&font, msg, font_size);
 
-    V2i ttf_size = get_text_size(&font, "Sesbian Lex", 200);
+    // text
+    unsigned ttx = w - (w/5) - (ttf_size.x/2);
+    unsigned tty = h*0.865 - ttf_size.y * 0.5 - ttf_size.y * 0.5;
+    draw_text(img_out, &font, msg, ttx, tty, font_size, p.colors[1]);
 
-    unsigned ttx = (blank->width/2) - (ttf_size.x/2);
-    unsigned tty = blank->height*0.7 - ttf_size.y * 0.5 - ttf_size.y * 0.5;
-    draw_text(blank, &font, "Sesbian Lex", ttx, tty, 200, BLACK);
+    img_print_stats(img_out);
 
-    stbi_write_png(OUTPUT_ARG, blank->width, blank->height, blank->channels, blank->pixels, blank->width * blank->channels);
+    return img_out;
 }
 
-void style3(PALETTE p)
+IMG *style3(PALETTE p, unsigned w)
 {
-    const unsigned w = 1024;
-    const unsigned h = 1024;
-
-    const unsigned cb = w * 0.078125;
-
-    const unsigned cw = w - cb;
-    const unsigned ch = w * 0.68359375;
+    const unsigned h = w; // height
+    const unsigned cb = w * 0.078125; // entire color block width
+    const unsigned cw = w - cb;          // 'one' of n (6) color block width
+    const unsigned ch = w * 0.68359375;  // color block height
 
     print_palette(p);
+
+    // blank img
     IMG *i = create_img(w, h, 3, p.colors[15]);
 
+    // color blocks
     int a = 0;
     const unsigned pal_w = cw / 6;
     for (int j = 15; a < 6; j--)
@@ -1161,14 +1307,17 @@ void style3(PALETTE p)
     // font
     char *ttf_buff = load_file("./fonts/Minecraft.ttf");
     stbtt_fontinfo font;
-    int font_size = 80;
+    int font_size = w * 0.078125;
     stbtt_InitFont(&font, (unsigned char*) ttf_buff, stbtt_GetFontOffsetForIndex((unsigned char*)ttf_buff, 0));
     V2i ttf_size = get_text_size(&font, "Sesbian Lex", font_size);
+
+    // text
     unsigned ttx = i->width - (i->width/6) - (ttf_size.x/2);
     unsigned tty = i->height*0.88 - ttf_size.y * 0.5 - ttf_size.y * 0.5;
     draw_text(i, &font, "HELLWAL\'", ttx, tty, font_size, p.colors[1]);
 
-    stbi_write_png(OUTPUT_ARG, i->width, i->height, i->channels, i->pixels, i->width * i->channels);
+    img_print_stats(i);
+    return i;
 }
 
 int main(int argc, char **argv)
@@ -1179,15 +1328,13 @@ int main(int argc, char **argv)
 
     PALETTE p = process_theme(THEME_ARG);
     IMG *img = img_load(IMAGE_ARG);
+    IMG *img_to_write = NULL;
 
-    if (STYLE_ARG != NULL && !strcmp(STYLE_ARG, "1"))
-    {
-        style1(img, p);
-    }
-    else if (STYLE_ARG != NULL && !strcmp(STYLE_ARG, "2"))
-        style2(img, p);
-    else if (STYLE_ARG != NULL && !strcmp(STYLE_ARG, "3"))
-        style3(p);
+    if (!strcmp(STYLE_ARG, "1"))      img_to_write = style1(img, p, WIDTH_ARG);
+    else if (!strcmp(STYLE_ARG, "2")) img_to_write = style2(img, p, WIDTH_ARG);
+    else if (!strcmp(STYLE_ARG, "3")) img_to_write = style3(p, WIDTH_ARG);
+
+    image_write(img_to_write, OUTPUT_ARG);
 
     stbi_image_free(img->pixels);
     free(img);
