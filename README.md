@@ -55,3 +55,65 @@ Clone git repo, run make command and you are ready to go! - you just need C comp
 ```sh
 git clone https://github.com/danihek/hellcard && cd hellcard && make
 ```
+
+## Usage
+
+> [!WARNING]
+> For now, because of early development hellcard only supports **hellwal** as a **backend**, but other color palettes generators will be supported as well in the future.
+
+Copy [colors.hellwal](https://github.com/danihek/hellwal/blob/main/templates/colors.hellwal) template from hellwal [repo](https://github.com/danihek/hellwal), put it in ``~/.config/hellwal/templates`` folder and run hellwal with your wallpaper.
+
+```sh
+hellwal -i wallpaper.png
+```
+
+> this will generate **colors.hellwal** in your cache folder in ``~/.cache/hellwal/`` folder.
+> if you dont want to color your terminals, use ``--skip-term-colors``
+
+Now you can run hellcard with same wallpaper, preffered style (1-3) and some width:
+
+```sh
+./hellcard -i wallpaper.png -s 2 -w 2048
+```
+
+...And thats it! You can try other styles or even create your own by modifying the source code.
+
+## Optimizing it for large subset of wallpaper
+
+like here: [reddit](https://www.reddit.com/r/unixporn/comments/1k5mcww/oc_i_created_a_tool_to_create_flashcards/)
+
+You can create a script that is in synergy with hellwal, so you can use $wallpaper variable, and easly fetch any values. It will be even more useful in the future.
+
+Example script that will show hellcard after changing wallpaper:
+
+```sh
+#!/usr/bin/env sh
+
+# Generate colorscheme from random wallpaper from folder
+hellwal -i $HOME/wallpapers/ -r
+
+# Source all variables like $wallpaper, $color0-15
+source ~/.cache/hellwal/variables.sh
+
+# Run hellcard to generate hellcard :p
+./hellcard -i $wallpaper -s 2 -o "$HOME/.cache/hellcard.png" -w 1024
+
+# Splash this work of art at your screen with image viewer!
+imv "$HOME/.cache/hellcard.png"
+
+```
+
+Example script for all your wallpapers:
+
+```sh
+#!/usr/bin/env sh
+
+for w in $(ls -1 ~/wallpapers); do
+    hellwal -i $HOME/wallpapers/$w
+    source ~/.cache/hellwal/variables.sh
+
+    ./hellcard -i $wallpaper -s 1 -o "$(echo $w)_out1.png" -w 4096
+    ./hellcard -i $wallpaper -s 2 -o "$(echo $w)_out2.png" -w 4096
+    ./hellcard -i $wallpaper -s 3 -o "$(echo $w)_out3.png" -w 4096
+done
+```
