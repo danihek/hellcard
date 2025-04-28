@@ -3,21 +3,17 @@ VERSION = 0.0.1
 CFLAGS = -Wall -Wextra
 LDFLAGS = -lm
 
-DESTDIR = /usr/local/bin
+PREFIX = /usr/local
+BINDIR = $(PREFIX)/bin
 
-hellcard: hellcard.c
-	$(CC) $(CFLAGS) hellcard.c -o hellcard $(LDFLAGS)
-
-debug: hellcard.c
-	$(CC) $(CFLAGS) -ggdb hellcard.c -o hellcard $(LDFLAGS)
+all: hellcard
 
 clean:
-	rm hellcard
+	rm -f hellcard
 
-install: hellcard
-	mkdir -p $(DESTDIR)
-	cp -f hellcard $(DESTDIR)
-	chmod 755 $(DESTDIR)/hellcard # chmod u=rwx,g=rx,o=rx
+install:
+	mkdir -p $(DESTDIR)$(BINDIR)
+	cp -p hellcard $(DESTDIR)$(BINDIR)
 
 uninstall:
 	rm -f $(DESTDIR)/hellcard
@@ -25,4 +21,4 @@ uninstall:
 release: hellcard
 	tar czf hellcard-v$(VERSION).tar.gz hellcard
 
-.PHONY: hellcard debug release clean install uninstall
+.PHONY: all clean install release uninstall
